@@ -1,4 +1,4 @@
-name: Java Maven Build & Publish Artifact
+name: Build, Store Artifact & Deploy to Azure VM
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build_and_publish:
+  build_and_store_artifact:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,10 +22,38 @@ jobs:
         cache: maven
 
     - name: Build and test with Maven
-      run: mvn --batch-mode verify
+      run: mvn --batch-mode package
 
     - name: Upload JAR artifact
       uses: actions/upload-artifact@v4
       with:
         name: my-app-jar
         path: target/*.jar
+
+  deploy_to_azure_vm:
+    runs-on: ubuntu-latest
+    needs: build_and_store_artifact
+
+    steps:
+    - name: Download JAR artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: my-app-jar
+        path: downloaded-jar
+
+    - name: Install sshpass
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sshpass
+
+    - name: Copy JAR to Azure VM
+      run: |
+        sshpass -p "${{ secrets.AZURE_VM_PASSWORD }}" scp -o StrictHostKeyChecking=no \
+          downloaded-jar/*.jar \
+          ${{ secrets.AZURE_VM_USERNAME }}@${{ secrets.AZURE_VM_HOST }}:/home/${{ secrets.AZURE_VM_USERNAME }}/app.jar
+
+    - name: Run JAR on Azure VM
+      run: |
+        sshpass -p "${{ secrets.AZURE_VM_PASSWORD }}" ssh -o StrictHostKeyChecking=no \
+          ${{ secrets.AZURE_VM_USERNAME }}@${{ secrets.AZURE_VM_HOST }} \
+          'nohup java -jar /home/${{ secrets.AZURE_VM_USERNAME }}/app.jar > app.log 2>&1 &'
